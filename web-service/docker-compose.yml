@@ -11,7 +11,9 @@ services:
       - DB_PASSWORD=password
       - DB_NAME=kingofthebeat
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+    restart: always
 
   postgres:
     image: postgres:15
@@ -21,3 +23,7 @@ services:
       POSTGRES_DB: kingofthebeat
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d kingofthebeat"]
+      interval: 5s
+      retries: 5

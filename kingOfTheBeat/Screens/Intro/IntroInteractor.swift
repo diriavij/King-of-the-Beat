@@ -29,7 +29,6 @@ class IntroInteractor: IntroBusinessLogic {
     func loadMain(_ request: IntroModels.Route.Request) {
         // Проверяем, есть ли ID пользователя
         if let id = UserDefaults.standard.value(forKey: "UserId") as? Int {
-            // Если ID уже существует, выполняем регистрацию
             registerUser(with: id)
         } else {
             // Если ID нет, сначала запрашиваем ключ
@@ -39,12 +38,10 @@ class IntroInteractor: IntroBusinessLogic {
                     return
                 }
                 
-                // Сохраняем ключ в UserDefaults
-                UserDefaults.standard.setValue(key, forKey: "UserId")
-                print("Generated key: \(key)")
-                
                 // Регистрируем пользователя
                 if let id = Int(key) {
+                    UserDefaults.standard.setValue(id, forKey: "UserId")
+                    print("Generated key: \(id)")
                     self.registerUser(with: id)
                 }
             }
