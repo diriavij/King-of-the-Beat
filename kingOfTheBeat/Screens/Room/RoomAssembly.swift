@@ -9,9 +9,9 @@ import Foundation
 
 final class RoomAssembly {
     static func build() -> RoomViewController {
-        var presenter = RoomPresenter()
-        var interactor = RoomInteractor(presenter: presenter)
-        var view = RoomViewController(interactor: interactor)
+        let presenter = RoomPresenter()
+        let interactor = RoomInteractor(presenter: presenter)
+        let view = RoomViewController(interactor: interactor)
         presenter.view = view
         return view
     }

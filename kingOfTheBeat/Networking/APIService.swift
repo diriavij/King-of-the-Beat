@@ -17,8 +17,9 @@ class APIService {
     }
     
     func getAccessToken(completion: @escaping (Bool) -> Void) {
-        let worker = BaseUrlWorker(baseURL: APIConstants.authBaseUrl) // "https://accounts.spotify.com"
+        let worker = BaseUrlWorker(baseURL: APIConstants.authBaseUrl)
         let request = Request(endpoint: SpotifyAPIEndpoint.token, method: .post)
+        
         worker.execute(with: request) { result in
             switch result {
             case .success(let response):
@@ -30,6 +31,8 @@ class APIService {
                                let refreshToken = json?["refresh_token"] as? String {
                                 UserDefaults.standard.setValue(accessToken, forKey: "Authorization")
                                 UserDefaults.standard.setValue(refreshToken, forKey: "Refresh")
+                                UserDefaults.standard.synchronize()
+                                
                                 print("Новые access и refresh токены сохранены.")
                                 completion(true)
                             } else {
@@ -124,49 +127,47 @@ class APIService {
         }
     }
     
-    func getProfilePic(completion: @escaping (URL?) -> Void) {
-        let worker = BaseUrlWorker(baseURL: APIConstants.apiBaseUrl) // "https://api.spotify.com"
+    func getProfileInfo(completion: @escaping (URL?, String?) -> Void) {
+        let worker = BaseUrlWorker(baseURL: APIConstants.apiBaseUrl)
         let request = Request(endpoint: SpotifyAPIEndpoint.profilePic)
+        
         worker.execute(with: request) { result in
             switch result {
             case .success(let response):
-                if let httpResponse = response.response as? HTTPURLResponse {
-                    if httpResponse.statusCode == 401 {
-                        print("Ошибка: Access токен истек. Статус код: \(httpResponse.statusCode)")
-                        self.renewAccessToken { success in
-                            if success {
-                                self.getProfilePic(completion: completion)
-                            } else {
-                                completion(nil)
-                            }
+                if let httpResponse = response.response as? HTTPURLResponse, httpResponse.statusCode == 401 {
+                    print("Ошибка: Access токен истек. Статус код: \(httpResponse.statusCode)")
+                    self.renewAccessToken { success in
+                        if success {
+                            self.getProfileInfo(completion: completion)
+                        } else {
+                            completion(nil, nil)
                         }
-                        return
                     }
+                    return
                 }
                 
                 if let data = response.data {
                     do {
                         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-                        if let images = json?["images"] as? [[String: Any]],
-                           let firstImage = images.first,
-                           let imageUrlString = firstImage["url"] as? String,
-                           let imageUrl = URL(string: imageUrlString) {
-                            completion(imageUrl)
-                        } else {
-                            print("Ошибка: Не удалось разобрать URL изображения профиля.")
-                            completion(nil)
-                        }
+                        let images = json?["images"] as? [[String: Any]]
+                        let firstImage = images?.first
+                        let imageUrlString = firstImage?["url"] as? String
+                        let displayName = json?["display_name"] as? String
+                        
+                        let imageUrl = imageUrlString.flatMap { URL(string: $0) }
+                        
+                        completion(imageUrl, displayName)
                     } catch {
                         print("Ошибка парсинга ответа профиля: \(error)")
-                        completion(nil)
+                        completion(nil, nil)
                     }
                 } else {
                     print("Ошибка: Нет данных в ответе профиля.")
-                    completion(nil)
+                    completion(nil, nil)
                 }
             case .failure(let error):
                 print("Ошибка: \(error.localizedDescription)")
-                completion(nil)
+                completion(nil, nil)
             }
         }
     }

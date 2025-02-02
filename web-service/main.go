@@ -70,7 +70,9 @@ func randomUserKeyHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 type User struct {
-	UserId int `json:"userId"`
+	UserId     int    `json:"userId"`
+	Name       string `json:"name"`
+	ProfilePic string `json:"profilePic"`
 }
 
 type Room struct {
@@ -112,8 +114,8 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 	var userID int
 	err = conn.QueryRow(
 		context.Background(),
-		"INSERT INTO \"user\" (user_id, balance) VALUES ($1, $2) RETURNING user_id",
-		newUser.UserId, 0,
+		"INSERT INTO \"user\" (user_id, balance, name, profile_pic) VALUES ($1, $2, $3, $4) RETURNING user_id",
+		newUser.UserId, 0, newUser.Name, newUser.ProfilePic,
 	).Scan(&userID)
 	if err != nil {
 		log.Println("Error inserting user into database:", err)
@@ -251,6 +253,14 @@ func createRoomHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func getUserInfo(w http.ResponseWriter, r *http.Request) {
+
+}
+
+func getRoomInfo(w http.ResponseWriter, r *http.Request) {
+
+}
+
 func main() {
 	connectDB()
 	defer conn.Close(context.Background())
@@ -259,6 +269,8 @@ func main() {
 	http.HandleFunc("/random-room-key", randomRoomKeyHandler) // Генерация ключа комнаты
 	http.HandleFunc("/rooms/create", createRoomHandler)       // Создание комнаты
 	http.HandleFunc("/auth/register", addUserHandler)         // Регистрация пользователя
+	http.HandleFunc("/room", randomUserKeyHandler)
+	http.HandleFunc("/user", randomRoomKeyHandler)
 
 	fmt.Println("Server running on port 8080...")
 	log.Fatal(http.ListenAndServe(":8080", nil))

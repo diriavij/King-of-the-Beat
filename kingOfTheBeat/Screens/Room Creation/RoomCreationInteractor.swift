@@ -85,8 +85,6 @@ final class RoomCreationInteractor: RoomCreationBusinessLogic {
                 return
             }
             
-            
-            
             if let id = Int(key) {
                 self.registerRoom(with: id, request.name)
                 UserDefaults.standard.setValue(id, forKey: "Room")

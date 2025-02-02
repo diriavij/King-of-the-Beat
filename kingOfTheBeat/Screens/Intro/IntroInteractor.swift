@@ -79,31 +79,73 @@ class IntroInteractor: IntroBusinessLogic {
         task.resume()
     }
 
-    // Функция для регистрации пользователя
     func registerUser(with id: Int) {
         let url = URL(string: "http://localhost:8080/auth/register")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        let newUser = User(userId: id)
+        let apiService = APIService()
+
+        // Получаем токен перед запросом профиля
+        apiService.getAccessToken { success in
+            guard success else {
+                print("Ошибка: не удалось получить токен.")
+                return
+            }
+
+            DispatchQueue.main.async {
+                print("Токен успешно получен: \(UserDefaults.standard.string(forKey: "Authorization") ?? "нет токена")")
+
+                // Теперь можно безопасно запрашивать данные профиля
+                apiService.getProfileInfo { [weak self] url, name in
+                    guard let self = self else { return }
+
+                    if let url = url {
+                        UserDefaults.standard.set(url.absoluteString, forKey: "PicUrl")
+                    } else {
+                        print("Ошибка: Не удалось получить URL изображения профиля.")
+                        let placeholderURL = URL(string: "https://developers.elementor.com/docs/assets/img/elementor-placeholder-image.png")!
+                        UserDefaults.standard.set(placeholderURL.absoluteString, forKey: "PicUrl")
+                    }
+                    UserDefaults.standard.set(name, forKey: "Name")
+
+                    // После получения данных создаем пользователя
+                    self.createUser(with: id)
+                }
+            }
+        }
+    }
+
+    // Вынесенный метод для создания пользователя
+    private func createUser(with id: Int) {
+        let url = URL(string: "http://localhost:8080/auth/register")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let newUser = User(
+            userId: id,
+            name: UserDefaults.standard.value(forKey: "Name") as? String ?? "",
+            profilePic: UserDefaults.standard.value(forKey: "PicUrl") as? String ?? "https://developers.elementor.com/docs/assets/img/elementor-placeholder-image.png"
+        )
+
         do {
             let requestBody = try JSONEncoder().encode(newUser)
-            print(String(decoding: requestBody, as: UTF8.self))
+            print("Запрос на создание пользователя: \(String(decoding: requestBody, as: UTF8.self))")
             request.httpBody = requestBody
 
             let task = URLSession.shared.dataTask(with: request) { data, response, error in
                 if let error = error {
-                    print("Error registering user: \(error)")
+                    print("Ошибка при регистрации пользователя: \(error)")
                     return
                 }
 
-                print("User created successfully")
-                // Здесь вы можете вызвать presenter.routeToMain
+                print("Пользователь успешно создан")
             }
             task.resume()
         } catch {
-            print("Failed to encode user: \(error)")
+            print("Ошибка при кодировании данных пользователя: \(error)")
         }
     }
 }

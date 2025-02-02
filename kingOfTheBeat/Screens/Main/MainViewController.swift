@@ -197,7 +197,7 @@ final class MainViewController: UIViewController {
     
     private func fetchProfilePic() {
         let apiService = APIService()
-        apiService.getProfilePic { [weak self] url in
+        apiService.getProfileInfo { [weak self] url, name in
             guard let self = self else { return }
             if let url = url {
                 UserDefaults.standard.set(url.absoluteString, forKey: "PicUrl")
@@ -205,6 +205,7 @@ final class MainViewController: UIViewController {
             } else {
                 print("Ошибка: Не удалось получить URL изображения профиля.")
                 let placeholderURL = URL(string: "https://developers.elementor.com/docs/assets/img/elementor-placeholder-image.png")!
+                UserDefaults.standard.set(placeholderURL, forKey: "PicUrl")
                 self.loadImage(from: placeholderURL)
             }
         }

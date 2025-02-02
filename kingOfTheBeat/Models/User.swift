@@ -9,4 +9,6 @@ import Foundation
 
 struct User: Encodable {
     var userId: Int
+    var name: String
+    var profilePic: String
 }
