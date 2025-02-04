@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct User: Encodable {
+struct User: Encodable, Decodable {
     var userId: Int
     var name: String
     var profilePic: String

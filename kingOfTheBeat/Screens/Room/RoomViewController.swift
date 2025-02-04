@@ -12,16 +12,20 @@ final class RoomViewController: UIViewController {
     
     private var interactor: RoomBusinessLogic
     
+    var tableView: UITableView = UITableView(frame: .zero)
+    private var webSocketManager = WebSocketManager()
+    private var participants: [User] = []
+    
     internal let lowerShining = UIImageView()
     
-    private let createButton = UIButton(type: .system)
     private let returnButton = UIButton(type: .system)
     
     let containerView = UIView()
     let titleLabel = UILabel()
-    let inputContainer = UIView()
-    let textField = UITextField()
+    let code = UILabel()
     let gorgeousLabel = UILabel()
+    let participantsLabel = UILabel()
+    let startButton = UIButton(type: .system)
     
     // MARK: - Lifecycle
     init(interactor: RoomInteractor) {
@@ -37,15 +41,90 @@ final class RoomViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         configureUI()
+        
+        tableView.dataSource = self
+        tableView.delegate = self
+        tableView.register(ParticipantCell.self, forCellReuseIdentifier: "ParticipantCell")
+
+        webSocketManager.connect()
+        NotificationCenter.default.addObserver(self, selector: #selector(updateParticipants), name: .participantsUpdated, object: nil)
+
+        fetchParticipants()
+    }
+    
+    deinit {
+        webSocketManager.disconnect()
     }
     
     // MARK: - Configuring Methods
     private func configureUI() {
         view.backgroundColor = .black
-        configureShining()
         configureReturnButton()
-        configureNameField()
-        configureCreationButton()
+        configureStartButton()
+        configureCode()
+        configureRoomName()
+        configureTable()
+    }
+    
+    private func configureTable() {
+        view.addSubview(tableView)
+        tableView.separatorStyle = .none
+        tableView.pinTop(to: participantsLabel.bottomAnchor, 20)
+    }
+    
+    private func configureRoomName() {
+        getRoomInfo { [weak self] roomName in
+            DispatchQueue.main.async {
+                self?.gorgeousLabel.text = roomName
+            }
+        }
+        gorgeousLabel.textAlignment = .center
+        gorgeousLabel.font = UIFont(name: "Modak", size: 32)
+        gorgeousLabel.textColor = UIColor.convertToRGBInit("90A679")
+        view.addSubview(gorgeousLabel)
+
+        gorgeousLabel.pinTop(to: returnButton.bottomAnchor, 20)
+        gorgeousLabel.pinCenterX(to: view.centerXAnchor)
+        
+        participantsLabel.text = "Participants"
+        participantsLabel.textAlignment = .center
+        participantsLabel.font = UIFont.systemFont(ofSize: 24, weight: .bold)
+        participantsLabel.textColor = UIColor.convertToRGBInit("5A7149")
+        view.addSubview(participantsLabel)
+
+        participantsLabel.pinTop(to: gorgeousLabel.bottomAnchor, 10)
+        participantsLabel.pinCenterX(to: view.centerXAnchor)
+    }
+    
+    private func configureCode() {
+        containerView.backgroundColor = UIColor.convertToRGBInit("90A679")
+        containerView.layer.cornerRadius = 40
+        containerView.clipsToBounds = true
+        view.addSubview(containerView)
+
+        containerView.pinCenterX(to: view)
+        containerView.pinWidth(to: view.widthAnchor, 0.8)
+        containerView.pinBottom(to: startButton.topAnchor, 20)
+        containerView.setHeight(120)
+
+        titleLabel.text = "Room's code"
+        titleLabel.numberOfLines = 2
+        titleLabel.font = UIFont.systemFont(ofSize: 32, weight: .bold)
+        titleLabel.textColor = .black
+        titleLabel.textAlignment = .center
+        containerView.addSubview(titleLabel)
+
+        titleLabel.pinTop(to: containerView.topAnchor, 15)
+        titleLabel.pinCenterX(to: containerView)
+
+        code.text = String(UserDefaults.standard.integer(forKey: "Room"))
+        code.font = UIFont.systemFont(ofSize: 32, weight: UIFont.Weight(5))
+        code.textColor = .black
+        code.textAlignment = .center
+        containerView.addSubview(code)
+        
+        code.pinTop(to: titleLabel.bottomAnchor, 15)
+        code.pinCenterX(to: containerView)
     }
     
     private func configureReturnButton() {
@@ -54,83 +133,115 @@ final class RoomViewController: UIViewController {
         returnButton.setImage(img, for: .normal)
         returnButton.tintColor = UIColor.convertToRGBInit("90A679")
         returnButton.pinLeft(to: view.leadingAnchor, 30)
-        returnButton.pinTop(to: view.safeAreaLayoutGuide.topAnchor, 30)
+        returnButton.pinTop(to: view.safeAreaLayoutGuide.topAnchor, 20)
         returnButton.setHeight(50)
         returnButton.setWidth(50)
     }
     
-    private func configureNameField() {
-        containerView.backgroundColor = UIColor.convertToRGBInit("5A7149")
-        containerView.layer.cornerRadius = 40
-        containerView.clipsToBounds = true
-        view.addSubview(containerView)
-
-        containerView.pinCenterX(to: view)
-        containerView.pinWidth(to: view.widthAnchor, 0.8)
-        containerView.pinTop(to: returnButton.bottomAnchor, 150)
-        containerView.setHeight(160)
-
-        gorgeousLabel.text = "Room Creation"
-        gorgeousLabel.textAlignment = .center
-        gorgeousLabel.font = UIFont(name: "Modak", size: 48)
-        gorgeousLabel.textColor = UIColor.convertToRGBInit("90A679")
-        view.addSubview(gorgeousLabel)
-
-        gorgeousLabel.pinBottom(to: containerView.topAnchor, 15)
-        gorgeousLabel.pinCenterX(to: containerView.centerXAnchor)
-
-        titleLabel.text = "Enter Room's\n Name:"
-        titleLabel.numberOfLines = 2
-        titleLabel.font = UIFont.systemFont(ofSize: 32, weight: .bold)
-        titleLabel.textColor = .black
-        titleLabel.textAlignment = .center
-        containerView.addSubview(titleLabel)
-
-        titleLabel.pinTop(to: gorgeousLabel.bottomAnchor, 15)
-        titleLabel.pinCenterX(to: containerView)
-
-        inputContainer.backgroundColor = UIColor.convertToRGBInit("90A679")
-        inputContainer.layer.cornerRadius = 20
-        inputContainer.clipsToBounds = true
-        containerView.addSubview(inputContainer)
-
-        inputContainer.pinTop(to: titleLabel.bottomAnchor, 15)
-        inputContainer.pinCenterX(to: containerView)
-        inputContainer.pinWidth(to: containerView.widthAnchor, 0.9)
-        inputContainer.setHeight(50)
-
-        textField.placeholder = "Enter name"
-        textField.textAlignment = .left
-        textField.textColor = .black
-        textField.font = UIFont.systemFont(ofSize: 16)
-        textField.backgroundColor = .clear
-        inputContainer.addSubview(textField)
-
-        textField.pinLeft(to: inputContainer.leadingAnchor, 10)
-        textField.pinRight(to: inputContainer.trailingAnchor, -10)
-        textField.pinTop(to: inputContainer.topAnchor, 5)
-        textField.pinBottom(to: inputContainer.bottomAnchor, -5)
+    private func configureStartButton() {
+        view.addSubview(startButton)
+        startButton.setTitle("Start Game", for: .normal)
+        startButton.titleLabel?.font = UIFont.systemFont(ofSize: 36, weight: .bold)
+        startButton.setTitleColor(.black, for: .normal)
+        startButton.layer.cornerRadius = 25
+        startButton.pinHeight(to: view.heightAnchor, 0.06)
+        startButton.pinWidth(to: view.widthAnchor, 0.7)
+        startButton.pinBottom(to: view.bottomAnchor, 100)
+        startButton.pinCenterX(to: view)
+        startButton.backgroundColor = UIColor.convertToRGBInit("5A7149")
     }
     
-    private func configureCreationButton() {
-        view.addSubview(createButton)
-        createButton.setTitle("CREATE", for: .normal)
-        createButton.titleLabel?.font = UIFont.systemFont(ofSize: 36, weight: .bold)
-        createButton.setTitleColor(.black, for: .normal)
-        createButton.layer.cornerRadius = 25
-        createButton.pinHeight(to: view.heightAnchor, 0.06)
-        createButton.pinWidth(to: view.widthAnchor, 0.7)
-        createButton.pinTop(to: containerView.bottomAnchor, 30)
-        createButton.pinCenterX(to: view)
-        createButton.backgroundColor = UIColor.convertToRGBInit("90A679")
+    private func fetchParticipants() {
+        let roomId = UserDefaults.standard.integer(forKey: "Room")
+        let urlString = "http://localhost:8080/room/participants?roomId=\(roomId)"
+        
+        guard let url = URL(string: urlString) else { return }
+
+        URLSession.shared.dataTask(with: url) { data, response, error in
+            if let error = error {
+                print("Ошибка загрузки участников:", error.localizedDescription)
+                return
+            }
+
+            guard let data = data else {
+                print("Нет данных от сервера")
+                return
+            }
+
+            do {
+                let participants = try JSONDecoder().decode([User].self, from: data)
+                DispatchQueue.main.async {
+                    self.participants = participants
+                    self.tableView.reloadData()
+                }
+            } catch {
+                print("Ошибка декодирования JSON участников:", error)
+            }
+        }.resume()
     }
     
-    private func configureShining() {
-        lowerShining.image = UIImage(named: "shining_bottom")
-        view.addSubview(lowerShining)
-        lowerShining.pinBottom(to: view.bottomAnchor)
-        lowerShining.pinCenterX(to: view)
-        lowerShining.pinWidth(to: view)
-        lowerShining.pinHeight(to: view, 0.5)
+    // MARK: - Helper Methods
+    
+    private func getRoomInfo(completion: @escaping (String) -> Void) {
+        let roomId = UserDefaults.standard.integer(forKey: "Room")
+        let urlString = "http://localhost:8080/room/info?roomId=\(roomId)"
+        
+        guard let url = URL(string: urlString) else {
+            completion("Invalid URL")
+            return
+        }
+
+        URLSession.shared.dataTask(with: url) { data, response, error in
+            if let error = error {
+                print("Ошибка загрузки комнаты: \(error.localizedDescription)")
+                DispatchQueue.main.async { completion("Error loading room") }
+                return
+            }
+
+            guard let data = data else {
+                DispatchQueue.main.async { completion("No data received") }
+                return
+            }
+
+            if let jsonString = String(data: data, encoding: .utf8) {
+                print("Полученный JSON: \(jsonString)")
+            } else {
+                print("Ошибка: не удалось преобразовать ответ в строку")
+            }
+
+            do {
+                let roomInfo = try JSONDecoder().decode(Room.self, from: data)
+                DispatchQueue.main.async { completion(roomInfo.name) }
+            } catch {
+                print("Ошибка декодирования JSON: \(error)")
+                DispatchQueue.main.async { completion("Invalid response") }
+            }
+        }.resume()
+    }
+    
+    @objc
+    private func updateParticipants(notification: Notification) {
+        guard let updatedParticipants = notification.object as? [User] else { return }
+        DispatchQueue.main.async {
+            self.participants = updatedParticipants
+            self.tableView.reloadData()
+        }
+    }
+}
+
+extension RoomViewController: UITableViewDataSource, UITableViewDelegate {
+    
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        return participants.count
+    }
+    
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: "ParticipantCell", for: indexPath) as! ParticipantCell
+        cell.configure(with: participants[indexPath.row])
+        return cell
+    }
+    
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        return 60  // Высота каждой строки
     }
 }

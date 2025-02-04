@@ -57,7 +57,7 @@ final class RoomCreationInteractor: RoomCreationBusinessLogic {
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let newRoom = Room(roomId: id, ownerId: UserDefaults.standard.value(forKey: "UserId") as? Int ?? 0, name: name)
+        let newRoom = Room(roomId: id, name: name, ownerId: UserDefaults.standard.value(forKey: "UserId") as? Int ?? 0)
         
         do {
             let requestBody = try JSONEncoder().encode(newRoom)
