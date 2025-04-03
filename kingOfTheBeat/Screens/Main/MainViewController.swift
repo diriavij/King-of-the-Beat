@@ -105,6 +105,10 @@ final class MainViewController: UIViewController {
         inputContainer.addSubview(textField)
         textField.addTarget(self, action: #selector(codeChanged), for: .editingChanged)
         
+        textField.isUserInteractionEnabled = true
+        inputContainer.isUserInteractionEnabled = true
+        containerView.isUserInteractionEnabled = true
+        
         textField.pinLeft(to: inputContainer.leadingAnchor, 10)
         textField.pinTop(to: inputContainer.topAnchor, 5)
         textField.pinBottom(to: inputContainer.bottomAnchor, 5)
@@ -119,7 +123,7 @@ final class MainViewController: UIViewController {
         sendButton.setWidth(20)
         sendButton.setHeight(20)
         
-        sendButton.addTarget(self, action: #selector(didTapJoinRoom), for: .touchUpInside)
+        sendButton.addTarget(self, action: #selector(joinButtonTapped), for: .touchUpInside)
     }
     
     private func configureCreationButton() {
@@ -166,9 +170,24 @@ final class MainViewController: UIViewController {
         }
     }
     
-    @objc
-    private func didTapJoinRoom() {
-       
+    @objc func joinButtonTapped() {
+        guard let codeText = textField.text, let roomCode = Int(codeText) else {
+            print("Invalid room code")
+            return
+        }
+
+        let userId = UserDefaults.standard.integer(forKey: "UserId")
+        interactor.joinRoom(with: roomCode, userId: userId) { success in
+            DispatchQueue.main.async {
+                if success {
+                    self.interactor.loadRoomScreen(MainModels.RouteToRoom.Request())
+                } else {
+                    let alert = UIAlertController(title: "Error", message: "Unable to join room. Check the code and try again.", preferredStyle: .alert)
+                    alert.addAction(UIAlertAction(title: "OK", style: .default))
+                    self.present(alert, animated: true)
+                }
+            }
+        }
     }
     
     @objc

@@ -69,7 +69,12 @@ final class RoomViewController: UIViewController {
     private func configureTable() {
         view.addSubview(tableView)
         tableView.separatorStyle = .none
+        tableView.backgroundColor = .black
+        
         tableView.pinTop(to: participantsLabel.bottomAnchor, 20)
+        tableView.pinLeft(to: view, 20)
+        tableView.pinRight(to: view, 20)
+        tableView.pinBottom(to: containerView.topAnchor, 20)
     }
     
     private func configureRoomName() {
@@ -172,6 +177,7 @@ final class RoomViewController: UIViewController {
                 let participants = try JSONDecoder().decode([User].self, from: data)
                 DispatchQueue.main.async {
                     self.participants = participants
+                    print("Загружено участников: \(participants.count)")
                     self.tableView.reloadData()
                 }
             } catch {
@@ -242,6 +248,6 @@ extension RoomViewController: UITableViewDataSource, UITableViewDelegate {
     }
     
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return 60  // Высота каждой строки
+        return 60
     }
 }

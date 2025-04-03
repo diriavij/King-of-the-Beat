@@ -22,4 +22,12 @@ final class MainPresenter: MainPresentationLogic {
         navController.modalTransitionStyle = .coverVertical
         view?.present(navController, animated: true)
     }
+    
+    func routeToRoomScreen(_ response: MainModels.RouteToRoom.Response) {
+        let creationVC = RoomAssembly.build()
+        let navController = UINavigationController(rootViewController: creationVC)
+        navController.modalPresentationStyle = .overFullScreen
+        navController.modalTransitionStyle = .coverVertical
+        view?.present(navController, animated: true)
+    }
 }

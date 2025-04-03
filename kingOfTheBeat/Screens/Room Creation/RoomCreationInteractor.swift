@@ -52,27 +52,32 @@ final class RoomCreationInteractor: RoomCreationBusinessLogic {
         task.resume()
     }
     
-    private func registerRoom(with id: Int, _ name: String) {
+    private func registerRoom(with id: Int, _ name: String, completion: @escaping () -> Void) {
         let url = URL(string: "http://localhost:8080/rooms/create")!
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let newRoom = Room(roomId: id, name: name, ownerId: UserDefaults.standard.value(forKey: "UserId") as? Int ?? 0)
-        
+        let newRoom = Room(roomId: id, name: name, ownerId: UserDefaults.standard.integer(forKey: "UserId"))
+
         do {
             let requestBody = try JSONEncoder().encode(newRoom)
-            print(String(decoding: requestBody, as: UTF8.self))
             urlRequest.httpBody = requestBody
 
-            let task = URLSession.shared.dataTask(with: urlRequest) { data, response, error in
+            URLSession.shared.dataTask(with: urlRequest) { data, response, error in
                 if let error = error {
                     print("Error creating room: \(error)")
                     return
                 }
 
+                guard let httpResponse = response as? HTTPURLResponse,
+                      (200...299).contains(httpResponse.statusCode) else {
+                    print("Room creation failed with response: \(String(describing: response))")
+                    return
+                }
+
                 print("Room created successfully")
-            }
-            task.resume()
+                completion()
+            }.resume()
         } catch {
             print("Failed to encode room: \(error)")
         }
@@ -80,18 +85,20 @@ final class RoomCreationInteractor: RoomCreationBusinessLogic {
 
     func createRoom(_ request: RoomCreationModels.CreateRoom.Request) {
         fetchRandomRoomKey { key in
-            guard let key = key else {
-                print("Failed to fetch user key")
+            guard let key = key, let id = Int(key) else {
+                print("Failed to fetch room key")
                 return
             }
-            
-            if let id = Int(key) {
-                self.registerRoom(with: id, request.name)
+
+            self.registerRoom(with: id, request.name) {
+                // Сохраняем комнату только после успешной регистрации
                 UserDefaults.standard.setValue(id, forKey: "Room")
-                print("Generated room key: \(id)")
+                print("Room successfully created with ID: \(id)")
+                DispatchQueue.main.async {
+                    self.presenter.routeToRoomScreen(RoomCreationModels.CreateRoom.Response(name: request.name))
+                }
             }
         }
-        presenter.routeToRoomScreen(RoomCreationModels.CreateRoom.Response(name: request.name))
     }
 }
 

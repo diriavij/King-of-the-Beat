@@ -13,7 +13,10 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v4"
+	"github.com/jackc/pgx/v4/pgxpool"
 )
+
+var db *pgxpool.Pool
 
 var (
 	conn      *pgx.Conn
@@ -72,7 +75,7 @@ func getRoomParticipantsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := conn.Query(context.Background(), `
+	rows, err := db.Query(context.Background(), `
 		SELECT u.user_id, u.name, u.profile_pic 
 		FROM public.participation p
 		JOIN public.user u ON p.user_id = u.user_id
@@ -106,15 +109,6 @@ func getRoomParticipantsHandler(w http.ResponseWriter, r *http.Request) {
 	broadcastUpdates(response)
 }
 
-func connectDB() {
-	var err error
-	conn, err = pgx.Connect(context.Background(), "postgres://user:password@postgres:5432/kingofthebeat")
-	if err != nil {
-		log.Fatal("Unable to connect to database:", err)
-	}
-	log.Println("Connected to database")
-}
-
 func generateRandomKey() string {
 	const charset = "0123456789"
 	rand.Seed(time.Now().UnixNano())
@@ -128,7 +122,7 @@ func generateRandomKey() string {
 // Проверка наличия ключа в базе данных
 func keyExists(key string) bool {
 	var exists bool
-	err := conn.QueryRow(context.Background(), "SELECT EXISTS (SELECT 1 FROM public.user WHERE user_id = $1)", key).Scan(&exists)
+	err := db.QueryRow(context.Background(), "SELECT EXISTS (SELECT 1 FROM public.user WHERE user_id = $1)", key).Scan(&exists)
 	if err != nil {
 		log.Println("Error checking key existence:", err)
 		return true // На всякий случай считаем, что ключ существует, чтобы не рисковать
@@ -199,7 +193,7 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Adding user with ID: %d\n", newUser.UserId)
 
 	var userID int
-	err = conn.QueryRow(
+	err = db.QueryRow(
 		context.Background(),
 		"INSERT INTO public.user (user_id, balance, name, profile_pic) VALUES ($1, $2, $3, $4) RETURNING user_id",
 		newUser.UserId, 0, newUser.Name, newUser.ProfilePic,
@@ -223,7 +217,7 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 // Проверка наличия ключа комнаты в базе
 func roomKeyExists(key string) bool {
 	var exists bool
-	err := conn.QueryRow(context.Background(), "SELECT EXISTS (SELECT 1 FROM public.room WHERE room_id = $1)", key).Scan(&exists)
+	err := db.QueryRow(context.Background(), "SELECT EXISTS (SELECT 1 FROM public.room WHERE room_id = $1)", key).Scan(&exists)
 	if err != nil {
 		log.Println("Error checking room key existence:", err)
 		return true // Считаем, что ключ существует в случае ошибки
@@ -285,7 +279,7 @@ func createRoomHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Step 1: Check if the user exists in the database
 	var userExists bool
-	err = conn.QueryRow(context.Background(), "SELECT EXISTS (SELECT 1 FROM public.user WHERE user_id = $1)", newRoom.OwnerID).Scan(&userExists)
+	err = db.QueryRow(context.Background(), "SELECT EXISTS (SELECT 1 FROM public.user WHERE user_id = $1)", newRoom.OwnerID).Scan(&userExists)
 	if err != nil {
 		log.Println("Error checking user existence:", err)
 		http.Error(w, "Database error", http.StatusInternalServerError)
@@ -299,7 +293,7 @@ func createRoomHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Step 2: Begin transaction
-	tx, err := conn.Begin(context.Background())
+	tx, err := db.Begin(context.Background())
 	if err != nil {
 		log.Println("Error starting transaction:", err)
 		http.Error(w, "Database transaction error", http.StatusInternalServerError)
@@ -373,7 +367,7 @@ func getRoomInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var room Room
-	err := conn.QueryRow(
+	err := db.QueryRow(
 		context.Background(),
 		"SELECT room_id, owner_id, name FROM public.room WHERE room_id = $1",
 		roomID,
@@ -410,7 +404,7 @@ func addUserToRoomHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = conn.Exec(context.Background(), `
+	_, err = db.Exec(context.Background(), `
 		INSERT INTO public.participation (user_id, room_id) VALUES ($1, $2)`, data.UserId, data.RoomId)
 
 	if err != nil {
@@ -419,13 +413,50 @@ func addUserToRoomHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Отправляем обновленный список участников в WebSocket
-	getRoomParticipantsHandler(w, r)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "User successfully added to room",
+	})
+
+	go func(roomID int) {
+		rows, err := db.Query(context.Background(), `
+			SELECT u.user_id, u.name, u.profile_pic 
+			FROM public.participation p
+			JOIN public.user u ON p.user_id = u.user_id
+			WHERE p.room_id = $1`, roomID)
+		if err != nil {
+			log.Println("Ошибка при получении участников:", err)
+			return
+		}
+		defer rows.Close()
+
+		var participants []User
+		for rows.Next() {
+			var user User
+			if err := rows.Scan(&user.UserId, &user.Name, &user.ProfilePic); err != nil {
+				log.Println("Ошибка сканирования участников:", err)
+				continue
+			}
+			participants = append(participants, user)
+		}
+
+		response, _ := json.Marshal(participants)
+		broadcast <- response
+	}(data.RoomId)
+}
+
+func connectDB() {
+	var err error
+	db, err = pgxpool.Connect(context.Background(), "postgres://user:password@postgres:5432/kingofthebeat")
+	if err != nil {
+		log.Fatal("Unable to connect to database:", err)
+	}
+	log.Println("Connected to database")
 }
 
 func main() {
 	connectDB()
-	defer conn.Close(context.Background())
 
 	http.HandleFunc("/ws", handleConnections)                         // WebSocket-соединение
 	http.HandleFunc("/room/participants", getRoomParticipantsHandler) // Получение участников комнаты
