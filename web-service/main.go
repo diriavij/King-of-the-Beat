@@ -12,14 +12,12 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
 )
 
 var db *pgxpool.Pool
 
 var (
-	conn      *pgx.Conn
 	clients   = make(map[*websocket.Conn]bool) // Храним активные WebSocket-соединения
 	broadcast = make(chan []byte)              // Канал для отправки обновлений всем клиентам
 	upgrader  = websocket.Upgrader{}           // Настройка WebSocket-соединения
@@ -183,7 +181,6 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("Parsed user ID: %d\n", newUser.UserId)
 
-	// Проверяем значение userId
 	if newUser.UserId == 0 {
 		log.Println("Invalid userId (0 or missing)")
 		http.Error(w, "userId must be a valid non-zero integer", http.StatusBadRequest)
@@ -196,7 +193,7 @@ func addUserHandler(w http.ResponseWriter, r *http.Request) {
 	err = db.QueryRow(
 		context.Background(),
 		"INSERT INTO public.user (user_id, balance, name, profile_pic) VALUES ($1, $2, $3, $4) RETURNING user_id",
-		newUser.UserId, 0, newUser.Name, newUser.ProfilePic,
+		newUser.UserId, 1000, newUser.Name, newUser.ProfilePic,
 	).Scan(&userID)
 	if err != nil {
 		log.Println("Error inserting user into database:", err)
@@ -398,14 +395,34 @@ func addUserToRoomHandler(w http.ResponseWriter, r *http.Request) {
 		RoomId int `json:"roomId"`
 	}
 
-	err := json.NewDecoder(r.Body).Decode(&data)
-	if err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
+	// 1) Сколько сейчас участников в этой комнате?
+	var count int
+	err := db.QueryRow(context.Background(),
+		"SELECT COUNT(*) FROM participation WHERE room_id = $1",
+		data.RoomId,
+	).Scan(&count)
+
+	if err != nil {
+		log.Println("Ошибка подсчёта участников:", err)
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+
+	if count >= 6 {
+		// Участников уже 6 — не добавляем
+		http.Error(w, "Room is full (max 6 participants)", http.StatusBadRequest)
+		return
+	}
+
+	// 2) Если ещё < 6, добавляем участника
 	_, err = db.Exec(context.Background(), `
-		INSERT INTO public.participation (user_id, room_id) VALUES ($1, $2)`, data.UserId, data.RoomId)
+		INSERT INTO participation (user_id, room_id) VALUES ($1, $2)`,
+		data.UserId, data.RoomId)
 
 	if err != nil {
 		log.Println("Ошибка при добавлении участника:", err)
@@ -413,12 +430,14 @@ func addUserToRoomHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 3) Возвращаем обычный успешный ответ
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{
 		"message": "User successfully added to room",
 	})
 
+	// 4) Асинхронно оповещаем WebSocket о новом списке участников
 	go func(roomID int) {
 		rows, err := db.Query(context.Background(), `
 			SELECT u.user_id, u.name, u.profile_pic 
@@ -442,8 +461,95 @@ func addUserToRoomHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		response, _ := json.Marshal(participants)
-		broadcast <- response
+		broadcast <- response // WebSocket канал
 	}(data.RoomId)
+}
+
+func startGameHandler(w http.ResponseWriter, r *http.Request) {
+	var data struct {
+		UserId int `json:"userId"`
+		RoomId int `json:"roomId"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// 1) Проверяем, что userId == owner_id комнаты
+	var ownerId int
+	err := db.QueryRow(context.Background(),
+		"SELECT owner_id FROM room WHERE room_id = $1",
+		data.RoomId,
+	).Scan(&ownerId)
+	if err != nil {
+		log.Println("Ошибка при получении комнаты:", err)
+		http.Error(w, "Room not found", http.StatusNotFound)
+		return
+	}
+
+	if data.UserId != ownerId {
+		http.Error(w, "Only the owner can start the game", http.StatusForbidden)
+		return
+	}
+
+	// 2) Считаем участников
+	var count int
+	err = db.QueryRow(context.Background(),
+		"SELECT COUNT(*) FROM participation WHERE room_id = $1",
+		data.RoomId,
+	).Scan(&count)
+
+	if err != nil {
+		log.Println("Ошибка подсчёта участников:", err)
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+
+	if count < 3 {
+		http.Error(w, "Not enough participants to start (need at least 3)", http.StatusBadRequest)
+		return
+	}
+
+	// 3) Иначе всё ок — «стартуем»
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "Game started!",
+	})
+
+}
+
+func setTopicHandler(w http.ResponseWriter, r *http.Request) {
+	log.Println("Received request to /room/set-topic")
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	roomID := r.URL.Query().Get("roomId")
+	if roomID == "" {
+		http.Error(w, "roomId is required", http.StatusBadRequest)
+		return
+	}
+
+	topics := []string{"Party", "Love", "Summer", "Chill", "Workout", "Throwback"}
+	topic := topics[rand.Intn(len(topics))]
+
+	_, err := db.Exec(context.Background(), "UPDATE public.room SET topic = $1 WHERE room_id = $2", topic, roomID)
+	if err != nil {
+		log.Println("Error updating topic:", err)
+		http.Error(w, "Failed to set topic", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("Assigned topic '%s' to room %s\n", topic, roomID)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"topic": topic,
+	})
 }
 
 func connectDB() {
@@ -467,6 +573,8 @@ func main() {
 	http.HandleFunc("/room/info", getRoomInfo)
 	http.HandleFunc("/user/info", getUserInfo)
 	http.HandleFunc("/room/add-user", addUserToRoomHandler)
+	http.HandleFunc("/room/start", startGameHandler)
+	http.HandleFunc("/room/set-topic", setTopicHandler)
 
 	go func() {
 		for {

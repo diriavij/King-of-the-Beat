@@ -43,7 +43,7 @@ final class RoomCreationInteractor: RoomCreationBusinessLogic {
 
             do {
                 let key = try JSONDecoder().decode(String.self, from: data)
-                completion(key) // Возвращаем ключ через замыкание
+                completion(key)
             } catch {
                 print("Failed to decode response: \(error)")
                 completion(nil)
@@ -57,7 +57,7 @@ final class RoomCreationInteractor: RoomCreationBusinessLogic {
         var urlRequest = URLRequest(url: url)
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let newRoom = Room(roomId: id, name: name, ownerId: UserDefaults.standard.integer(forKey: "UserId"))
+        let newRoom = Room(roomId: id, name: name, ownerId: UserDefaults.standard.integer(forKey: "UserId"), topic: nil)
 
         do {
             let requestBody = try JSONEncoder().encode(newRoom)

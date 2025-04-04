@@ -7,8 +7,9 @@
 
 import Foundation
 
-struct Room: Encodable, Decodable {
-    var roomId: Int
-    var name: String
-    var ownerId: Int
+struct Room: Codable {
+    let roomId: Int
+    let name: String
+    let ownerId: Int
+    let topic: String?
 }
