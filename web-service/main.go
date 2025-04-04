@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/jackc/pgx/v4"
 	"io"
 	"log"
 	"math/rand"
@@ -552,6 +553,86 @@ func setTopicHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func submitSongsHandler(w http.ResponseWriter, r *http.Request) {
+	var data struct {
+		UserId int `json:"userId"`
+		RoomId int `json:"roomId"`
+		Songs  []struct {
+			TrackName  string `json:"trackName"`
+			ArtistName string `json:"artistName"`
+			AlbumURL   string `json:"albumUrl"`
+		} `json:"songs"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	batch := &pgx.Batch{}
+	for _, song := range data.Songs {
+		batch.Queue(
+			`INSERT INTO song (room_id, user_id, track_name, artist_name, album_url)
+			 VALUES ($1, $2, $3, $4, $5)`,
+			data.RoomId, data.UserId, song.TrackName, song.ArtistName, song.AlbumURL,
+		)
+	}
+
+	br := db.SendBatch(context.Background(), batch)
+	if err := br.Close(); err != nil {
+		http.Error(w, "Failed to submit songs", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func markSubmissionDoneHandler(w http.ResponseWriter, r *http.Request) {
+	var data struct {
+		UserId int `json:"userId"`
+		RoomId int `json:"roomId"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	_, err := db.Exec(context.Background(),
+		`UPDATE participation SET is_submitted = true WHERE user_id = $1 AND room_id = $2`,
+		data.UserId, data.RoomId,
+	)
+
+	if err != nil {
+		http.Error(w, "Failed to update submission status", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func allSubmittedHandler(w http.ResponseWriter, r *http.Request) {
+	roomID := r.URL.Query().Get("roomId")
+	if roomID == "" {
+		http.Error(w, "roomId is required", http.StatusBadRequest)
+		return
+	}
+
+	var allSubmitted bool
+	err := db.QueryRow(context.Background(), `
+		SELECT BOOL_AND(is_submitted) FROM participation WHERE room_id = $1
+	`, roomID).Scan(&allSubmitted)
+
+	if err != nil {
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]bool{
+		"allSubmitted": allSubmitted,
+	})
+}
+
 func connectDB() {
 	var err error
 	db, err = pgxpool.Connect(context.Background(), "postgres://user:password@postgres:5432/kingofthebeat")
@@ -564,17 +645,20 @@ func connectDB() {
 func main() {
 	connectDB()
 
-	http.HandleFunc("/ws", handleConnections)                         // WebSocket-соединение
-	http.HandleFunc("/room/participants", getRoomParticipantsHandler) // Получение участников комнаты
-	http.HandleFunc("/random-user-key", randomUserKeyHandler)         // Генерация ключа пользователя
-	http.HandleFunc("/random-room-key", randomRoomKeyHandler)         // Генерация ключа комнаты
-	http.HandleFunc("/rooms/create", createRoomHandler)               // Создание комнаты
-	http.HandleFunc("/auth/register", addUserHandler)                 // Регистрация пользователя
+	http.HandleFunc("/ws", handleConnections)
+	http.HandleFunc("/room/participants", getRoomParticipantsHandler)
+	http.HandleFunc("/random-user-key", randomUserKeyHandler)
+	http.HandleFunc("/random-room-key", randomRoomKeyHandler)
+	http.HandleFunc("/rooms/create", createRoomHandler)
+	http.HandleFunc("/auth/register", addUserHandler)
 	http.HandleFunc("/room/info", getRoomInfo)
 	http.HandleFunc("/user/info", getUserInfo)
 	http.HandleFunc("/room/add-user", addUserToRoomHandler)
 	http.HandleFunc("/room/start", startGameHandler)
 	http.HandleFunc("/room/set-topic", setTopicHandler)
+	http.HandleFunc("/songs/submit", submitSongsHandler)
+	http.HandleFunc("/room/submission-done", markSubmissionDoneHandler)
+	http.HandleFunc("/room/all-submitted", allSubmittedHandler)
 
 	go func() {
 		for {

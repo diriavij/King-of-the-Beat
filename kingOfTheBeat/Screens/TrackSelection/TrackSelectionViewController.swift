@@ -42,6 +42,7 @@ final class TrackSelectionViewController: UIViewController {
         configureSuggestionsTable()
         configureAddedSongsSection()
         configureNextButton()
+        nextButton.addTarget(self, action: #selector(handleNext), for: .touchUpInside)
     }
 
     private func configureTopicTitle() {
@@ -277,6 +278,137 @@ final class TrackSelectionViewController: UIViewController {
 
         }.resume()
     }
+    
+    @objc private func handleNext() {
+        sendSongsToServer { [weak self] success in
+            guard let self = self, success else {
+                self?.showAlert("Failed to submit songs.")
+                return
+            }
+            markSubmissionComplete { success in
+                guard success else {
+                    self.showAlert("Could not notify submission completion.")
+                    return
+                }
+                DispatchQueue.main.async {
+                    self.waitForOthers()
+                }
+            }
+        }
+    }
+    
+    private func sendSongsToServer(completion: @escaping (Bool) -> Void) {
+        let roomId = UserDefaults.standard.integer(forKey: "Room")
+        let userId = UserDefaults.standard.integer(forKey: "UserId")
+
+        let songs = addedSongs.map { song in
+            return [
+                "trackName": song.name,
+                "artistName": song.artists.first?.name ?? "",
+                "albumUrl": song.album.images.first?.url ?? ""
+            ]
+        }
+
+        let payload: [String: Any] = [
+            "roomId": roomId,
+            "userId": userId,
+            "songs": songs
+        ]
+
+        guard let url = URL(string: "http://localhost:8080/songs/submit"),
+              let body = try? JSONSerialization.data(withJSONObject: payload) else {
+            completion(false)
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = body
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        URLSession.shared.dataTask(with: request) { _, response, error in
+            if let error = error {
+                print("Error submitting songs:", error)
+                completion(false)
+                return
+            }
+            print("Отправляем песни:", songs)
+            completion(true)
+        }.resume()
+    }
+    
+    private func markSubmissionComplete(completion: @escaping (Bool) -> Void) {
+        let roomId = UserDefaults.standard.integer(forKey: "Room")
+        let userId = UserDefaults.standard.integer(forKey: "UserId")
+
+        guard let url = URL(string: "http://localhost:8080/room/submission-done?roomId=\(roomId)&userId=\(userId)") else {
+            completion(false)
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        let body: [String: Any] = [
+            "roomId": roomId,
+            "userId": userId
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        URLSession.shared.dataTask(with: request) { _, response, error in
+            if let error = error {
+                print("Error marking submission complete:", error)
+                completion(false)
+                return
+            }
+            completion(true)
+        }.resume()
+    }
+    
+    private func waitForOthers() {
+        let alert = UIAlertController(title: "Waiting for others...", message: nil, preferredStyle: .alert)
+        present(alert, animated: true)
+
+        Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { timer in
+            self.checkAllSubmitted { allReady in
+                if allReady {
+                    timer.invalidate()
+                    DispatchQueue.main.async {
+                        alert.dismiss(animated: true) {
+                            self.interactor.loadBetsScreen(TrackSelectionModels.RouteToBets.Request())
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func checkAllSubmitted(completion: @escaping (Bool) -> Void) {
+        let roomId = UserDefaults.standard.integer(forKey: "Room")
+
+        guard let url = URL(string: "http://localhost:8080/room/all-submitted?roomId=\(roomId)") else {
+            completion(false)
+            return
+        }
+
+        URLSession.shared.dataTask(with: url) { data, _, error in
+            if let error = error {
+                print("Error checking submissions:", error)
+                completion(false)
+                return
+            }
+
+            guard let data = data,
+                  let response = try? JSONDecoder().decode([String: Bool].self, from: data),
+                  let allSubmitted = response["allSubmitted"] else {
+                completion(false)
+                return
+            }
+
+            completion(allSubmitted)
+        }.resume()
+    }
+    
 }
 
 extension TrackSelectionViewController: UITextFieldDelegate {
