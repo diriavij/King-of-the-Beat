@@ -59,3 +59,12 @@ CREATE TABLE IF NOT EXISTS "votes" (
     FOREIGN KEY (user_id) REFERENCES "user"(user_id) ON DELETE CASCADE,
     FOREIGN KEY (song_id) REFERENCES "song"(song_id) ON DELETE CASCADE
 );
+
+ALTER TABLE votes ADD COLUMN room_id SERIAL;
+
+CREATE TABLE IF NOT EXISTS "song_progress" (
+    song_id INTEGER PRIMARY KEY,
+    eliminated BOOLEAN DEFAULT FALSE,
+    round INTEGER DEFAULT 0,
+    FOREIGN KEY (song_id) REFERENCES "song"(song_id) ON DELETE CASCADE
+);

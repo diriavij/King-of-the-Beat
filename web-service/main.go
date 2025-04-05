@@ -764,7 +764,7 @@ func allBetsSubmittedHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("All bets submitted for room %s? %v\n", roomID, allBetsSubmitted)
+	log.Printf("All bets submitted for room %s  %v\n", roomID, allBetsSubmitted)
 
 	json.NewEncoder(w).Encode(map[string]bool{
 		"allBetsSubmitted": allBetsSubmitted,
@@ -800,29 +800,6 @@ type Track struct {
 	TrackName  string `json:"trackName"`
 	ArtistName string `json:"artistName"`
 	AlbumURL   string `json:"albumUrl"`
-}
-
-func submitVoteHandler(w http.ResponseWriter, r *http.Request) {
-	var vote struct {
-		UserId int `json:"userId"`
-		SongId int `json:"songId"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&vote); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	_, err := db.Exec(context.Background(), `
-        INSERT INTO votes (user_id, song_id) VALUES ($1, $2)`,
-		vote.UserId, vote.SongId)
-
-	if err != nil {
-		http.Error(w, "Error submitting vote", http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
 }
 
 func getRandomSongsForVotingHandler(w http.ResponseWriter, r *http.Request) {
@@ -874,6 +851,156 @@ func getRandomSongsForVotingHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(songs)
 }
 
+type Bet struct {
+	UserId    int `json:"userId"`
+	SongId    int `json:"songId"`
+	BetAmount int `json:"betAmount"`
+}
+
+func submitVoteHandler(w http.ResponseWriter, r *http.Request) {
+	var vote struct {
+		UserId int `json:"userId"`
+		SongId int `json:"songId"`
+		RoomId int `json:"roomId"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&vote); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	_, err := db.Exec(context.Background(), `
+        INSERT INTO votes (user_id, song_id, room_id) VALUES ($1, $2, $3)`,
+		vote.UserId, vote.SongId, vote.RoomId)
+	if err != nil {
+		http.Error(w, "Error submitting vote", http.StatusInternalServerError)
+		return
+	}
+
+	_, err = db.Exec(context.Background(), `
+		UPDATE participation SET bets_submitted = true WHERE room_id = $1 AND user_id = $2`,
+		vote.RoomId, vote.UserId)
+
+	if err != nil {
+		log.Println("Error resetting bets_submitted:", err)
+		http.Error(w, "Failed to reset bets_submitted", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func getBetsForSong(w http.ResponseWriter, r *http.Request) {
+	roomId := r.URL.Query().Get("roomId")
+	songId := r.URL.Query().Get("songId")
+
+	if roomId == "" || songId == "" {
+		http.Error(w, "roomId and songId are required", http.StatusBadRequest)
+		return
+	}
+
+	var bets []Bet
+	rows, err := db.Query(context.Background(), `
+        SELECT user_id, bet_amount 
+        FROM bets 
+        WHERE room_id = $1 AND song_id = $2
+    `, roomId, songId)
+
+	if err != nil {
+		log.Println("Error fetching bets:", err)
+		http.Error(w, "Error fetching bets", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var bet Bet
+		err := rows.Scan(&bet.UserId, &bet.BetAmount)
+		if err != nil {
+			log.Println("Error scanning bet:", err)
+			continue
+		}
+		bets = append(bets, bet)
+	}
+
+	if len(bets) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]Bet{}) // Отправляем пустой массив
+		return
+	}
+
+	response, _ := json.Marshal(bets)
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(response)
+}
+
+func resetBetsSubmittedHandler(w http.ResponseWriter, r *http.Request) {
+	log.Println("Received request to /room/reset-bets-submitted")
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	roomID := r.URL.Query().Get("roomId")
+	if roomID == "" {
+		http.Error(w, "roomId is required", http.StatusBadRequest)
+		return
+	}
+
+	roomIDInt, err := strconv.Atoi(roomID)
+	if err != nil {
+		log.Println("Invalid roomId:", roomID)
+		http.Error(w, "Invalid roomId", http.StatusBadRequest)
+		return
+	}
+
+	_, err = db.Exec(context.Background(), `
+		UPDATE participation SET bets_submitted = false WHERE room_id = $1`,
+		roomIDInt)
+
+	if err != nil {
+		log.Println("Error resetting bets_submitted:", err)
+		http.Error(w, "Failed to reset bets_submitted", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("Successfully reset bets_submitted for roomId %d\n", roomIDInt)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"message": "All bets_submitted reset to false for room",
+	})
+}
+
+func markSongEliminated(songId int, round int) error {
+	_, err := db.Exec(context.Background(), `
+        UPDATE song_progress SET eliminated = true, round = $1 WHERE song_id = $2`,
+		round, songId)
+	return err
+}
+
+func determineWinnerAndNextRound(w http.ResponseWriter, r *http.Request) {
+	song1Votes, err := getSongVotes(song1Id, roomId)
+	if err != nil {
+		http.Error(w, "Error", http.StatusInternalServerError)
+		return
+	}
+
+	song2Votes, err := getSongVotes(song2Id, roomId)
+	if err != nil {
+		http.Error(w, "Error", http.StatusInternalServerError)
+		return
+	}
+
+	if song1Votes > song2Votes {
+		markSongEliminated(song2Id, currentRound)
+	} else {
+		markSongEliminated(song1Id, currentRound)
+	}
+	awardBets(winningSongId, roomId) // Начисление ставок
+}
+
 func connectDB() {
 	var err error
 	db, err = pgxpool.Connect(context.Background(), "postgres://user:password@postgres:5432/kingofthebeat")
@@ -907,6 +1034,8 @@ func main() {
 	http.HandleFunc("/bets/mark-submitted", markBetsSubmittedHandler)
 	http.HandleFunc("/vote/submit", submitVoteHandler)
 	http.HandleFunc("/songs/for-voting", getRandomSongsForVotingHandler)
+	http.HandleFunc("/bets/for-song", getBetsForSong)
+	http.HandleFunc("/room/reset-bets-submitted", resetBetsSubmittedHandler)
 
 	go func() {
 		for {
