@@ -297,6 +297,24 @@ final class TrackSelectionViewController: UIViewController {
         }
     }
     
+    private func handleServerResponseForSongs(_ responseData: Data) {
+        do {
+            let decoder = JSONDecoder()
+            let serverResponse = try decoder.decode([Track].self, from: responseData)
+
+            for (index, track) in serverResponse.enumerated() {
+                addedSongs[index].id = String(track.songId)
+            }
+
+            DispatchQueue.main.async {
+                self.tableView.reloadData()
+            }
+
+        } catch {
+            print("Error decoding server response:", error)
+        }
+    }
+    
     private func sendSongsToServer(completion: @escaping (Bool) -> Void) {
         let roomId = UserDefaults.standard.integer(forKey: "Room")
         let userId = UserDefaults.standard.integer(forKey: "UserId")
@@ -305,7 +323,8 @@ final class TrackSelectionViewController: UIViewController {
             return [
                 "trackName": song.name,
                 "artistName": song.artists.first?.name ?? "",
-                "albumUrl": song.album.images.first?.url ?? ""
+                "albumUrl": song.album.images.first?.url ?? "",
+                "songId": song.id
             ]
         }
 
@@ -326,13 +345,12 @@ final class TrackSelectionViewController: UIViewController {
         request.httpBody = body
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        URLSession.shared.dataTask(with: request) { _, response, error in
+        URLSession.shared.dataTask(with: request) { _, _, error in
             if let error = error {
                 print("Error submitting songs:", error)
                 completion(false)
                 return
             }
-            print("Отправляем песни:", songs)
             completion(true)
         }.resume()
     }

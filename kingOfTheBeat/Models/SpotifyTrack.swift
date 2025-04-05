@@ -11,5 +11,5 @@ struct SpotifyTrack: Codable {
     let name: String
     let artists: [SpotifyArtist]
     let album: SpotifyAlbum
-    let id: String
+    var id: String
 }
