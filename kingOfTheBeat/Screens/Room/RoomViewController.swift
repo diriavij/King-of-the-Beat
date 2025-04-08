@@ -154,6 +154,7 @@ final class RoomViewController: UIViewController {
         startButton.pinBottom(to: view.bottomAnchor, 100)
         startButton.pinCenterX(to: view)
         startButton.backgroundColor = UIColor.convertToRGBInit("5A7149")
+        startButton.addTarget(self, action: #selector(didTapStart), for: .touchUpInside)
     }
     
     private func fetchParticipants() {
@@ -232,6 +233,91 @@ final class RoomViewController: UIViewController {
             self.participants = updatedParticipants
             self.tableView.reloadData()
         }
+    }
+    
+    @objc
+    private func didTapStart() {
+        let userId = UserDefaults.standard.integer(forKey: "UserId")
+        let roomId = UserDefaults.standard.integer(forKey: "Room")
+
+        assignTopic { [weak self] topic in
+            guard let self = self else { return }
+
+            guard let topic = topic else {
+                DispatchQueue.main.async {
+                    self.showAlert("Не удалось установить тему")
+                }
+                return
+            }
+
+            print("Тематика установлена:", topic)
+
+            let url = URL(string: "http://localhost:8080/room/start")!
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            let body: [String: Any] = [
+                "userId": userId,
+                "roomId": roomId
+            ]
+            request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+            URLSession.shared.dataTask(with: request) { data, response, error in
+                if let error = error {
+                    print("Ошибка старта игры:", error)
+                    return
+                }
+
+                guard let httpResponse = response as? HTTPURLResponse else { return }
+
+                if httpResponse.statusCode == 200 {
+                    DispatchQueue.main.async {
+                        UserDefaults.standard.set(self.participants.count, forKey: "ParticipantsCount")
+                        self.interactor.routeToTrackSelection(RoomModels.RouteToTrackSelection.Request(topic: topic))
+                    }
+                } else {
+                    if let data = data, let errorString = String(data: data, encoding: .utf8) {
+                        print("Ошибка старта:", errorString)
+                        DispatchQueue.main.async {
+                            self.showAlert(errorString)
+                        }
+                    }
+                }
+            }.resume()
+        }
+    }
+    
+    func assignTopic(completion: @escaping (String?) -> Void) {
+        let roomId = UserDefaults.standard.integer(forKey: "Room")
+        guard let url = URL(string: "http://localhost:8080/room/set-topic?roomId=\(roomId)") else {
+            completion(nil)
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            guard let data = data else {
+                completion(nil)
+                return
+            }
+
+            do {
+                let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: String]
+                let topic = json?["topic"]
+                completion(topic)
+            } catch {
+                print("Ошибка при декодировании JSON:", error)
+                completion(nil)
+            }
+        }.resume()
+    }
+    
+    func showAlert(_ message: String) {
+        let alert = UIAlertController(title: "Info", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "OK", style: .default))
+        present(alert, animated: true)
     }
 }
 
