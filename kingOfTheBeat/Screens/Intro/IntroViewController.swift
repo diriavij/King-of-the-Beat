@@ -1,10 +1,3 @@
-//
-//  ViewController.swift
-//  kingOfTheBeat
-//
-//  Created by Фома Попов on 21.11.2024.
-//
-
 import UIKit
 import WebKit
 

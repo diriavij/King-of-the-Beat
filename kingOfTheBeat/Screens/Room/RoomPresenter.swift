@@ -1,10 +1,3 @@
-//
-//  RoomPresenter.swift
-//  kingOfTheBeat
-//
-//  Created by Фома Попов on 01.02.2025.
-//
-
 import Foundation
 import UIKit
 
@@ -14,9 +7,10 @@ final class RoomPresenter: RoomPresentationLogic {
     
     func presentTrackSelection(_ response: RoomModels.RouteToTrackSelection.Response) {
         let vc = TrackSelectionAssembly.build(topic: response.topic)
-        let navController = UINavigationController(rootViewController: vc)
-        navController.modalPresentationStyle = .overFullScreen
-        navController.modalTransitionStyle = .coverVertical
-        view?.present(navController, animated: true)
+        vc.modalTransitionStyle = .coverVertical
+        vc.modalPresentationStyle = .overFullScreen
+        if let nav = view?.navigationController {
+            nav.pushViewController(vc, animated: true)
+        }
     }
 }

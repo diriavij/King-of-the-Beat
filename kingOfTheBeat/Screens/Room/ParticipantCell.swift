@@ -1,10 +1,3 @@
-//
-//  ParticipantCell.swift
-//  kingOfTheBeat
-//
-//  Created by Фома Попов on 03.02.2025.
-//
-
 import UIKit
 
 final class ParticipantCell: UITableViewCell {

@@ -1,10 +1,3 @@
-//
-//  WebSocketManager.swift
-//  kingOfTheBeat
-//
-//  Created by Фома Попов on 03.02.2025.
-//
-
 import Foundation
 
 class WebSocketManager {
@@ -34,18 +27,15 @@ class WebSocketManager {
                 print("Ошибка получения сообщения: \(error.localizedDescription)")
             }
             
-            // Повторяем чтение сообщений
             self?.receiveMessage()
         }
     }
     
-    // Закрытие WebSocket-соединения
     func disconnect() {
         webSocketTask?.cancel(with: .goingAway, reason: nil)
         webSocketTask = nil
     }
     
-    // Обработка обновлений списка участников
     private func handleParticipantsUpdate(json: String) {
         guard let data = json.data(using: .utf8) else { return }
         do {
@@ -59,7 +49,6 @@ class WebSocketManager {
     }
 }
 
-// Расширение для удобного использования NotificationCenter
 extension Notification.Name {
     static let participantsUpdated = Notification.Name("participantsUpdated")
 }

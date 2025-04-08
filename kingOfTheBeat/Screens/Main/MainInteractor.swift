@@ -1,10 +1,3 @@
-//
-//  MainInteractor.swift
-//  kingOfTheBeat
-//
-//  Created by Фома Попов on 01.01.2025.
-//
-
 import Foundation
 
 final class MainInteractor: MainBusinessLogic {
@@ -52,7 +45,6 @@ final class MainInteractor: MainBusinessLogic {
             }
 
             if httpResponse.statusCode == 200 {
-                // Сохраняем ID комнаты
                 UserDefaults.standard.setValue(code, forKey: "Room")
                 completion(true)
             } else {

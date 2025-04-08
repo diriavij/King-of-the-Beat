@@ -1,10 +1,3 @@
-//
-//  Networking.swift
-//  seminar_05.11
-//
-//  Created by Кирилл Исаев on 05.11.2024.
-//
-
 import UIKit
 protocol NetworkingLogic {
     typealias Response = ((_ response: Result<Networking.ServerResponse, Error>) -> Void)

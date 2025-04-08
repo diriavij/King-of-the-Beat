@@ -1,10 +1,3 @@
-//
-//  RoomViewController.swift
-//  kingOfTheBeat
-//
-//  Created by Фома Попов on 01.02.2025.
-//
-
 import Foundation
 import UIKit
 
@@ -40,6 +33,7 @@ final class RoomViewController: UIViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        navigationItem.hidesBackButton = true
         configureUI()
         
         tableView.dataSource = self
@@ -141,6 +135,7 @@ final class RoomViewController: UIViewController {
         returnButton.pinTop(to: view.safeAreaLayoutGuide.topAnchor, 20)
         returnButton.setHeight(50)
         returnButton.setWidth(50)
+        returnButton.addTarget(self, action: #selector(didTapReturn), for: .touchUpInside)
     }
     
     private func configureStartButton() {
@@ -285,6 +280,36 @@ final class RoomViewController: UIViewController {
                 }
             }.resume()
         }
+    }
+    
+    @objc
+    private func didTapReturn() {
+        let roomId = UserDefaults.standard.integer(forKey: "Room")
+        let userId = UserDefaults.standard.integer(forKey: "UserId")
+        guard var comp = URLComponents(string: "http://localhost:8080/room/remove-user") else {
+            navigationController?.popToRootViewController(animated: true)
+            return
+        }
+        comp.queryItems = [
+            URLQueryItem(name: "roomId", value: "\(roomId)"),
+            URLQueryItem(name: "userId", value: "\(userId)")
+        ]
+        guard let url = comp.url else {
+            navigationController?.popToRootViewController(animated: true)
+            return
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        URLSession.shared.dataTask(with: req) { [weak self] data, resp, err in
+            DispatchQueue.main.async {
+                if let error = err {
+                    print("Failed to leave room:", error)
+                } else if let http = resp as? HTTPURLResponse, http.statusCode != 200 {
+                    print("Leave room returned", http.statusCode)
+                }
+                self?.navigationController?.popToRootViewController(animated: true)
+            }
+        }.resume()
     }
     
     func assignTopic(completion: @escaping (String?) -> Void) {

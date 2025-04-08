@@ -1,10 +1,3 @@
-//
-//  IntroAssembly.swift
-//  kingOfTheBeat
-//
-//  Created by Фома Попов on 25.11.2024.
-//
-
 import Foundation
 
 // MARK: - IntroAssembly

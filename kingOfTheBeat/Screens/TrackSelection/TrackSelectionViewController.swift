@@ -1,10 +1,3 @@
-//
-//  TrackSelectionViewController.swift
-//  kingOfTheBeat
-//
-//  Created by Фома Попов on 03.04.2025.
-//
-
 import UIKit
 
 final class TrackSelectionViewController: UIViewController {
@@ -37,6 +30,7 @@ final class TrackSelectionViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
+        navigationItem.hidesBackButton = true
         configureTopicTitle()
         configureSearchBox()
         configureSuggestionsTable()

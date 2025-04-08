@@ -68,3 +68,12 @@ CREATE TABLE IF NOT EXISTS "song_progress" (
     round INTEGER DEFAULT 0,
     FOREIGN KEY (song_id) REFERENCES "song"(song_id) ON DELETE CASCADE
 );
+
+ALTER TABLE room
+  ADD COLUMN current_round INTEGER DEFAULT 0,
+  ADD COLUMN current_song1 INTEGER,
+  ADD COLUMN current_song2 INTEGER;
+
+ALTER TABLE song
+  ADD COLUMN eliminated BOOLEAN DEFAULT FALSE,
+  ADD COLUMN eliminated_round INTEGER DEFAULT 0;

@@ -1,20 +1,20 @@
-# Используем официальный образ Go
-FROM golang:1.20
+FROM golang:1.21-alpine AS builder
 
-# Устанавливаем рабочую директорию
 WORKDIR /app
 
-# Копируем модуль и исходники
 COPY go.mod go.sum ./
-RUN go mod tidy
+RUN go mod download
 
 COPY . .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o main .
 
-# Собираем приложение
-RUN go build -o main .
+FROM alpine:latest
 
-# Указываем порт
+RUN apk add --no-cache ca-certificates
+
+WORKDIR /root/
+
+COPY --from=builder /app/main .
+
 EXPOSE 8080
-
-# Запускаем приложение
 CMD ["./main"]

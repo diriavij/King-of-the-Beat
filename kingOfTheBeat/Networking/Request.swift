@@ -1,10 +1,3 @@
-//
-//  Request.swift
-//  seminar_05.11
-//
-//  Created by Кирилл Исаев on 05.11.2024.
-//
-
 import UIKit
 struct Request {
     enum Method: String {

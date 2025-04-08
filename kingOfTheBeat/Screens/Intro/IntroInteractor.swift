@@ -1,10 +1,3 @@
-//
-//  IntroInteractor.swift
-//  kingOfTheBeat
-//
-//  Created by Фома Попов on 01.01.2025.
-//
-
 import Foundation
 
 // MARK: - IntroInteractor
@@ -46,7 +39,6 @@ class IntroInteractor: IntroBusinessLogic {
         presenter.routeToMain(IntroModels.Route.Response())
     }
 
-    // Функция для запроса случайного ключа
     func fetchRandomUserKey(completion: @escaping (String?) -> Void) {
         let url = URL(string: "http://localhost:8080/random-user-key")!
         var request = URLRequest(url: url)
@@ -67,7 +59,7 @@ class IntroInteractor: IntroBusinessLogic {
 
             do {
                 let key = try JSONDecoder().decode(String.self, from: data)
-                completion(key) // Возвращаем ключ через замыкание
+                completion(key)
             } catch {
                 print("Failed to decode response: \(error)")
                 completion(nil)
@@ -84,7 +76,6 @@ class IntroInteractor: IntroBusinessLogic {
 
         let apiService = APIService()
 
-        // Получаем токен перед запросом профиля
         apiService.getAccessToken { success in
             guard success else {
                 print("Ошибка: не удалось получить токен.")
@@ -94,7 +85,6 @@ class IntroInteractor: IntroBusinessLogic {
             DispatchQueue.main.async {
                 print("Токен успешно получен: \(UserDefaults.standard.string(forKey: "Authorization") ?? "нет токена")")
 
-                // Теперь можно безопасно запрашивать данные профиля
                 apiService.getProfileInfo { [weak self] url, name in
                     guard let self = self else { return }
 
@@ -107,14 +97,12 @@ class IntroInteractor: IntroBusinessLogic {
                     }
                     UserDefaults.standard.set(name, forKey: "Name")
 
-                    // После получения данных создаем пользователя
                     self.createUser(with: id)
                 }
             }
         }
     }
 
-    // Вынесенный метод для создания пользователя
     private func createUser(with id: Int) {
         let url = URL(string: "http://localhost:8080/auth/register")!
         var request = URLRequest(url: url)

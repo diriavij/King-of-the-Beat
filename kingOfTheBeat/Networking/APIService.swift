@@ -1,10 +1,3 @@
-//
-//  APIService.swift
-//  kingOfTheBeat
-//
-//  Created by Фома Попов on 27.11.2024.
-//
-
 import Foundation
 
 import Foundation
@@ -27,6 +20,7 @@ class APIService {
                     if let data = response.data {
                         do {
                             let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                            
                             if let accessToken = json?["access_token"] as? String,
                                let refreshToken = json?["refresh_token"] as? String {
                                 UserDefaults.standard.setValue(accessToken, forKey: "Authorization")
@@ -34,6 +28,9 @@ class APIService {
                                 UserDefaults.standard.synchronize()
                                 
                                 print("Новые access и refresh токены сохранены.")
+                                if let scopeString = json?["scope"] as? String {
+                                    print("Spotify granted scopes: \(scopeString)")
+                                }
                                 completion(true)
                             } else {
                                 print("Ошибка: access_token или refresh_token отсутствуют в ответе.")
@@ -65,14 +62,14 @@ class APIService {
     }
     
     func renewAccessToken(completion: @escaping (Bool) -> Void) {
-        let worker = BaseUrlWorker(baseURL: APIConstants.authBaseUrl) // "https://accounts.spotify.com"
+        let worker = BaseUrlWorker(baseURL: APIConstants.authBaseUrl)
         
         guard let refreshToken = UserDefaults.standard.string(forKey: "Refresh"), !refreshToken.isEmpty else {
             print("Ошибка: Refresh токен отсутствует.")
             completion(false)
             return
         }
-
+        
         let parameters: [String: String] = [
             "grant_type": "refresh_token",
             "refresh_token": refreshToken,

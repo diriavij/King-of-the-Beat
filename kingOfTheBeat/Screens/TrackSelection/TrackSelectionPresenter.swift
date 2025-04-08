@@ -1,10 +1,3 @@
-//
-//  TrackSelectionPresenter.swift
-//  kingOfTheBeat
-//
-//  Created by Фома Попов on 03.04.2025.
-//
-
 import Foundation
 import UIKit
 
@@ -18,6 +11,8 @@ final class TrackSelectionPresenter: TrackSelectionPresentationLogic {
         let betsVC = BetsAssembly.build()
         betsVC.modalTransitionStyle = .coverVertical
         betsVC.modalPresentationStyle = .overFullScreen
-        view?.present(betsVC, animated: true)
+        if let nav = view?.navigationController {
+            nav.pushViewController(betsVC, animated: true)
+        }
     }
 }

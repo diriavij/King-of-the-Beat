@@ -1,10 +1,3 @@
-//
-//  APIConstants.swift
-//  kingOfTheBeat
-//
-//  Created by Фома Попов on 27.11.2024.
-//
-
 import Foundation
 
 enum APIConstants {
@@ -15,12 +8,12 @@ enum APIConstants {
     static let clientSecret = "c2e085365404445789f876bf044c99f9"
     static let redirectUri = "https://www.google.com"
     static let responseType = "code"
-    static let scopes = "user-read-private"
+    static let scopes = "user-read-private playlist-modify-private playlist-modify-public"
     
     static var authParams = [
         "response_type": responseType,
         "client_id": clientId,
-        "scopes": scopes,
+        "scope": scopes,
         "redirect_uri": redirectUri
     ]
 }

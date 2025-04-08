@@ -21,9 +21,9 @@ var db *pgxpool.Pool
 
 var (
 	clients   = make(map[*websocket.Conn]bool)
-	broadcast = make(chan []byte)
 	upgrader  = websocket.Upgrader{}
-	mu        sync.Mutex
+	clientsMu sync.Mutex
+	broadcast = make(chan []byte)
 )
 
 func handleConnections(w http.ResponseWriter, r *http.Request) {
@@ -35,28 +35,26 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 	}
 	defer ws.Close()
 
-	mu.Lock()
+	clientsMu.Lock()
 	clients[ws] = true
-	mu.Unlock()
+	clientsMu.Unlock()
 
 	for {
-		_, _, err := ws.ReadMessage()
-		if err != nil {
+		if _, _, err := ws.ReadMessage(); err != nil {
 			log.Println("Соединение закрыто:", err)
-			mu.Lock()
+			clientsMu.Lock()
 			delete(clients, ws)
-			mu.Unlock()
+			clientsMu.Unlock()
 			break
 		}
 	}
 }
 
 func broadcastUpdates(data []byte) {
-	mu.Lock()
-	defer mu.Unlock()
+	clientsMu.Lock()
+	defer clientsMu.Unlock()
 	for client := range clients {
-		err := client.WriteMessage(websocket.TextMessage, data)
-		if err != nil {
+		if err := client.WriteMessage(websocket.TextMessage, data); err != nil {
 			log.Println("Ошибка отправки сообщения:", err)
 			client.Close()
 			delete(clients, client)
@@ -106,7 +104,7 @@ func getRoomParticipantsHandler(w http.ResponseWriter, r *http.Request) {
 func generateRandomKey() string {
 	const charset = "0123456789"
 	rand.Seed(time.Now().UnixNano())
-	b := make([]byte, 6) // Длина ключа — 6 символов
+	b := make([]byte, 6)
 	for i := range b {
 		b[i] = charset[rand.Intn(len(charset))]
 	}
@@ -294,7 +292,7 @@ func createRoomHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		log.Println("Error inserting room into database:", err)
-		tx.Rollback(context.Background()) // Rollback on error
+		tx.Rollback(context.Background())
 		http.Error(w, "Error inserting room into database: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -308,7 +306,7 @@ func createRoomHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		log.Println("Error inserting owner into participation:", err)
-		tx.Rollback(context.Background()) // Rollback on error
+		tx.Rollback(context.Background())
 		http.Error(w, "Error adding owner to participation: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -361,7 +359,7 @@ func getRoomInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK) // Explicitly set 200 OK status
+	w.WriteHeader(http.StatusOK)
 
 	err = json.NewEncoder(w).Encode(room)
 	if err != nil {
@@ -438,7 +436,7 @@ func addUserToRoomHandler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		response, _ := json.Marshal(participants)
-		broadcast <- response // WebSocket канал
+		broadcast <- response
 	}(data.RoomId)
 }
 
@@ -722,7 +720,7 @@ func submitBetsHandler(w http.ResponseWriter, r *http.Request) {
 	for _, bet := range data.Bets {
 		batch.Queue(
 			`INSERT INTO bets (room_id, user_id, song_id, bet_amount) VALUES ($1, $2, $3, $4)`,
-			data.RoomId, data.UserId, bet.SongId, bet.BetAmount, // Добавляем songId
+			data.RoomId, data.UserId, bet.SongId, bet.BetAmount,
 		)
 	}
 
@@ -925,7 +923,7 @@ func getBetsForSong(w http.ResponseWriter, r *http.Request) {
 
 	if len(bets) == 0 {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]Bet{}) // Отправляем пустой массив
+		json.NewEncoder(w).Encode([]Bet{})
 		return
 	}
 
@@ -973,32 +971,338 @@ func resetBetsSubmittedHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func markSongEliminated(songId int, round int) error {
+func markSongEliminated(songId, round int) error {
 	_, err := db.Exec(context.Background(), `
-        UPDATE song_progress SET eliminated = true, round = $1 WHERE song_id = $2`,
-		round, songId)
+        UPDATE song 
+           SET eliminated = TRUE,
+               eliminated_round = $2
+         WHERE song_id = $1
+    `, songId, round)
 	return err
 }
 
-func determineWinnerAndNextRound(w http.ResponseWriter, r *http.Request) {
-	song1Votes, err := getSongVotes(song1Id, roomId)
+func getSongVotes(songId int, roomId int) (int, error) {
+	var count int
+	err := db.QueryRow(context.Background(), `
+        SELECT COUNT(*) 
+          FROM votes 
+         WHERE song_id = $1 AND room_id = $2
+    `, songId, roomId).Scan(&count)
 	if err != nil {
-		http.Error(w, "Error", http.StatusInternalServerError)
+		log.Println("Ошибка при подсчёте голосов:", err)
+		return 0, err
+	}
+	return count, nil
+}
+
+func awardBets(roomID int, songID int) error {
+	rows, err := db.Query(context.Background(), `
+        SELECT user_id, bet_amount
+          FROM bets
+         WHERE room_id = $1 AND song_id = $2
+    `, roomID, songID)
+	if err != nil {
+		return fmt.Errorf("failed to query bets: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var userID, amount int
+		if err := rows.Scan(&userID, &amount); err != nil {
+			return fmt.Errorf("failed to scan bet row: %w", err)
+		}
+		if _, err := db.Exec(context.Background(), `
+            UPDATE "user" 
+               SET balance = balance + $1 
+             WHERE user_id = $2
+        `, amount*2, userID); err != nil {
+			return fmt.Errorf("failed to update user balance: %w", err)
+		}
+	}
+	return nil
+}
+
+func getCurrentRoundHandler(w http.ResponseWriter, r *http.Request) {
+	roomID := r.URL.Query().Get("roomId")
+	if roomID == "" {
+		http.Error(w, "roomId is required", http.StatusBadRequest)
 		return
 	}
 
-	song2Votes, err := getSongVotes(song2Id, roomId)
+	rows, err := db.Query(context.Background(), `
+        SELECT s.song_id, s.track_name, s.artist_name, s.album_url
+          FROM song s
+     LEFT JOIN song_progress sp ON s.song_id = sp.song_id
+         WHERE s.room_id = $1
+           AND (sp.eliminated IS NULL OR sp.eliminated = FALSE)
+      ORDER BY random()
+         LIMIT 2
+    `, roomID)
 	if err != nil {
-		http.Error(w, "Error", http.StatusInternalServerError)
+		http.Error(w, "DB error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var tracks []Track
+	for rows.Next() {
+		var t Track
+		if err := rows.Scan(&t.SongID, &t.TrackName, &t.ArtistName, &t.AlbumURL); err != nil {
+			continue
+		}
+		tracks = append(tracks, t)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(tracks)
+}
+
+func initializeNextRound(roomID int) error {
+	var currentRound int
+	if err := db.QueryRow(context.Background(), `
+        SELECT current_round 
+          FROM room 
+         WHERE room_id = $1
+    `, roomID).Scan(&currentRound); err != nil {
+		return fmt.Errorf("fetch current_round: %w", err)
+	}
+
+	nextRound := currentRound + 1
+
+	rows, err := db.Query(context.Background(), `
+        SELECT s.song_id
+          FROM song s
+     LEFT JOIN song_progress sp ON s.song_id = sp.song_id
+         WHERE s.room_id = $1
+           AND (sp.eliminated IS NULL OR sp.eliminated = FALSE)
+      ORDER BY random()
+         LIMIT 2
+    `, roomID)
+	if err != nil {
+		return fmt.Errorf("select next songs: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []int
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			return fmt.Errorf("scan song_id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if len(ids) < 2 {
+		return fmt.Errorf("not enough songs remaining for next round")
+	}
+
+	if _, err := db.Exec(context.Background(), `
+        UPDATE room
+           SET current_round  = $2,
+               current_song1 = $3,
+               current_song2 = $4
+         WHERE room_id = $1
+    `, roomID, nextRound, ids[0], ids[1]); err != nil {
+		return fmt.Errorf("update room for next round: %w", err)
+	}
+
+	return nil
+}
+
+func determineWinnerAndNextRound(roomIDStr string) error {
+	roomID, err := strconv.Atoi(roomIDStr)
+	if err != nil {
+		return fmt.Errorf("invalid roomId %q: %w", roomIDStr, err)
+	}
+
+	rows, err := db.Query(context.Background(), `
+        SELECT s.song_id
+          FROM song s
+     LEFT JOIN song_progress sp ON s.song_id = sp.song_id
+         WHERE s.room_id = $1
+           AND (sp.eliminated IS NULL OR sp.eliminated = FALSE)
+      ORDER BY random()
+         LIMIT 2
+    `, roomID)
+	if err != nil {
+		return fmt.Errorf("fetch current songs: %w", err)
+	}
+	defer rows.Close()
+
+	var pair []int
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			return fmt.Errorf("scan song_id: %w", err)
+		}
+		pair = append(pair, id)
+	}
+	if len(pair) != 2 {
+		return fmt.Errorf("need exactly 2 songs in current round, got %d", len(pair))
+	}
+	song1ID, song2ID := pair[0], pair[1]
+
+	v1, err := getSongVotes(song1ID, roomID)
+	if err != nil {
+		return fmt.Errorf("count votes for %d: %w", song1ID, err)
+	}
+	v2, err := getSongVotes(song2ID, roomID)
+	if err != nil {
+		return fmt.Errorf("count votes for %d: %w", song2ID, err)
+	}
+
+	loser := song1ID
+	switch {
+	case v2 > v1:
+		loser = song1ID
+	case v1 > v2:
+		loser = song2ID
+	default:
+		if rand.Intn(2) == 0 {
+			loser = song1ID
+		} else {
+			loser = song2ID
+		}
+	}
+
+	if _, err := db.Exec(context.Background(), `
+    INSERT INTO song_progress (song_id, eliminated, round)
+         VALUES ($1, TRUE,
+                 (SELECT current_round FROM room WHERE room_id = $2) + 1)
+     ON CONFLICT (song_id) DO UPDATE
+          SET eliminated = TRUE,
+              round     = EXCLUDED.round
+`, loser, roomID); err != nil {
+		return fmt.Errorf("mark eliminated: %w", err)
+	}
+
+	if err := awardBets(roomID, loser); err != nil {
+		return fmt.Errorf("award bets: %w", err)
+	}
+
+	if err := initializeNextRound(roomID); err != nil {
+		return fmt.Errorf("init next round: %w", err)
+	}
+
+	return nil
+}
+
+func determineWinnerHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid method, use POST", http.StatusMethodNotAllowed)
+		return
+	}
+	roomID := r.URL.Query().Get("roomId")
+	if roomID == "" {
+		http.Error(w, "roomId is required", http.StatusBadRequest)
+		return
+	}
+	if err := determineWinnerAndNextRound(roomID); err != nil {
+		log.Printf("determineWinnerAndNextRound error for room %s: %v", roomID, err)
+		http.Error(w, "Failed to advance round: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+}
+
+func getTopThreeHandler(w http.ResponseWriter, r *http.Request) {
+	roomID := r.URL.Query().Get("roomId")
+	if roomID == "" {
+		http.Error(w, "roomId is required", http.StatusBadRequest)
 		return
 	}
 
-	if song1Votes > song2Votes {
-		markSongEliminated(song2Id, currentRound)
-	} else {
-		markSongEliminated(song1Id, currentRound)
+	rows, err := db.Query(context.Background(), `
+        SELECT s.song_id, s.track_name, s.artist_name, s.album_url, COUNT(v.user_id) AS votes
+          FROM song s
+     LEFT JOIN votes v ON s.song_id = v.song_id AND v.room_id = $1
+         WHERE s.room_id = $1
+      GROUP BY s.song_id
+      ORDER BY votes DESC
+         LIMIT 3
+    `, roomID)
+	if err != nil {
+		log.Println("getTopThree error:", err)
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
 	}
-	awardBets(winningSongId, roomId) // Начисление ставок
+	defer rows.Close()
+
+	var results []Track
+	for rows.Next() {
+		var t Track
+		var votes int
+		if err := rows.Scan(&t.SongID, &t.TrackName, &t.ArtistName, &t.AlbumURL, &votes); err != nil {
+			log.Println("scan top three:", err)
+			continue
+		}
+		results = append(results, t)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(results)
+}
+
+func getAllSongsHandler(w http.ResponseWriter, r *http.Request) {
+	roomID := r.URL.Query().Get("roomId")
+	if roomID == "" {
+		http.Error(w, "roomId is required", http.StatusBadRequest)
+		return
+	}
+
+	rows, err := db.Query(context.Background(), `
+        SELECT song_id, track_name, artist_name, album_url
+          FROM song
+         WHERE room_id = $1
+    `, roomID)
+	if err != nil {
+		log.Println("getAllSongs error:", err)
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var list []Track
+	for rows.Next() {
+		var t Track
+		if err := rows.Scan(&t.SongID, &t.TrackName, &t.ArtistName, &t.AlbumURL); err != nil {
+			log.Println("scan all songs:", err)
+			continue
+		}
+		list = append(list, t)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(list)
+}
+
+func removeUserFromRoomHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodDelete {
+		http.Error(w, "Invalid method, use POST or DELETE", http.StatusMethodNotAllowed)
+		return
+	}
+
+	roomIDStr := r.URL.Query().Get("roomId")
+	userIDStr := r.URL.Query().Get("userId")
+	if roomIDStr == "" || userIDStr == "" {
+		http.Error(w, "roomId and userId are required", http.StatusBadRequest)
+		return
+	}
+	roomID, err1 := strconv.Atoi(roomIDStr)
+	userID, err2 := strconv.Atoi(userIDStr)
+	if err1 != nil || err2 != nil {
+		http.Error(w, "invalid roomId or userId", http.StatusBadRequest)
+		return
+	}
+
+	if _, err := db.Exec(context.Background(),
+		`DELETE FROM participation WHERE room_id = $1 AND user_id = $2`,
+		roomID, userID,
+	); err != nil {
+		log.Printf("removeUserFromRoom error: %v", err)
+		http.Error(w, "Failed to remove user from room", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"message":"removed"}`))
 }
 
 func connectDB() {
@@ -1036,6 +1340,11 @@ func main() {
 	http.HandleFunc("/songs/for-voting", getRandomSongsForVotingHandler)
 	http.HandleFunc("/bets/for-song", getBetsForSong)
 	http.HandleFunc("/room/reset-bets-submitted", resetBetsSubmittedHandler)
+	http.HandleFunc("/currentRound", getCurrentRoundHandler)
+	http.HandleFunc("/room/determine-winner", determineWinnerHandler)
+	http.HandleFunc("/room/results", getTopThreeHandler)
+	http.HandleFunc("/room/all-songs", getAllSongsHandler)
+	http.HandleFunc("/room/remove-user", removeUserFromRoomHandler)
 
 	go func() {
 		for {

@@ -1,10 +1,3 @@
-//
-//  IntroPresenter.swift
-//  kingOfTheBeat
-//
-//  Created by Фома Попов on 01.01.2025.
-//
-
 import UIKit
 import WebKit
 
@@ -28,8 +21,9 @@ class IntroPresenter: IntroPresentationLogic {
     
     func routeToMain(_ response: IntroModels.Route.Response) {
         let mainVC = MainAssembly.build()
-        mainVC.modalTransitionStyle = .coverVertical
-        mainVC.modalPresentationStyle = .overFullScreen
-        view?.present(mainVC, animated: true)
+        let navController = UINavigationController(rootViewController: mainVC)
+        navController.modalPresentationStyle = .overFullScreen
+        navController.modalTransitionStyle = .coverVertical
+        view?.present(navController, animated: true)
     }
 }

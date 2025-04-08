@@ -26,6 +26,7 @@ final class BetsViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
+        navigationItem.hidesBackButton = true
         fetchData()
     }
     
