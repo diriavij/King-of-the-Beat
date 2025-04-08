@@ -23,3 +23,17 @@ CREATE TABLE IF NOT EXISTS "participation" (
     FOREIGN KEY (user_id) REFERENCES "user"(user_id) ON DELETE CASCADE,
     FOREIGN KEY (room_id) REFERENCES "room"(room_id) ON DELETE CASCADE
 );
+
+ALTER TABLE "participation" ADD COLUMN is_submitted BOOLEAN DEFAULT FALSE;
+
+-- Создание таблицы песен
+CREATE TABLE IF NOT EXISTS "song" (
+  song_id SERIAL PRIMARY KEY,
+  room_id INTEGER NOT NULL,
+  user_id INTEGER NOT NULL,
+  track_name VARCHAR NOT NULL,
+  artist_name VARCHAR,
+  album_url VARCHAR,
+  FOREIGN KEY (room_id) REFERENCES "room"(room_id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES "user"(user_id) ON DELETE CASCADE
+);
