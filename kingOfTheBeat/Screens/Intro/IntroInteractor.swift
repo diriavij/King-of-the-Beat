@@ -27,18 +27,15 @@ class IntroInteractor: IntroBusinessLogic {
     }
     
     func loadMain(_ request: IntroModels.Route.Request) {
-        // Проверяем, есть ли ID пользователя
         if let id = UserDefaults.standard.value(forKey: "UserId") as? Int {
             registerUser(with: id)
         } else {
-            // Если ID нет, сначала запрашиваем ключ
             fetchRandomUserKey { key in
                 guard let key = key else {
                     print("Failed to fetch user key")
                     return
                 }
                 
-                // Регистрируем пользователя
                 if let id = Int(key) {
                     UserDefaults.standard.setValue(id, forKey: "UserId")
                     print("Generated key: \(id)")

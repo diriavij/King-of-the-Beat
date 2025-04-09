@@ -642,8 +642,9 @@ func getRandomSongsHandler(w http.ResponseWriter, r *http.Request) {
 
 	var participantCount int
 	err := db.QueryRow(context.Background(), `
-		SELECT COUNT(*) FROM participation WHERE room_id = $1
-	`, roomId).Scan(&participantCount)
+        SELECT COUNT(*) FROM participation WHERE room_id = $1
+    `, roomId).Scan(&participantCount)
+
 	if err != nil || participantCount == 0 {
 		http.Error(w, "Failed to get participant count", http.StatusInternalServerError)
 		return
@@ -652,38 +653,29 @@ func getRandomSongsHandler(w http.ResponseWriter, r *http.Request) {
 	songsPerUser := 12 / participantCount
 
 	rows, err := db.Query(context.Background(), `
-		SELECT song_id, track_name, artist_name, album_url
-		FROM song
-		WHERE room_id = $1 AND user_id != $2
-		ORDER BY random()
-		LIMIT $3
-	`, roomId, userId, songsPerUser)
+        SELECT song_id, track_name, artist_name, album_url
+        FROM song
+        WHERE room_id = $1 AND user_id != $2
+        ORDER BY random()
+        LIMIT $3
+    `, roomId, userId, songsPerUser)
+
 	if err != nil {
 		http.Error(w, "Failed to fetch songs", http.StatusInternalServerError)
-		log.Println("DB error:", err)
 		return
 	}
 	defer rows.Close()
 
-	type Song struct {
-		SongID     int    `json:"songId"`
-		TrackName  string `json:"trackName"`
-		ArtistName string `json:"artistName"`
-		AlbumURL   string `json:"albumUrl"`
-	}
-
-	var songs []Song
+	var songs []Track
 	for rows.Next() {
-		var s Song
-		err := rows.Scan(&s.SongID, &s.TrackName, &s.ArtistName, &s.AlbumURL)
+		var song Track
+		err := rows.Scan(&song.SongID, &song.TrackName, &song.ArtistName, &song.AlbumURL)
 		if err != nil {
 			log.Println("Error scanning song row:", err)
 			continue
 		}
-		songs = append(songs, s)
+		songs = append(songs, song)
 	}
-
-	log.Printf("Sending %d songs to user %d in room %d\n", len(songs), userId, roomId)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(songs)
@@ -803,6 +795,85 @@ func markBetsSubmittedHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+type Track struct {
+	SongID     int    `json:"songId"`
+	TrackName  string `json:"trackName"`
+	ArtistName string `json:"artistName"`
+	AlbumURL   string `json:"albumUrl"`
+}
+
+func submitVoteHandler(w http.ResponseWriter, r *http.Request) {
+	var vote struct {
+		UserId int `json:"userId"`
+		SongId int `json:"songId"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&vote); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	_, err := db.Exec(context.Background(), `
+        INSERT INTO votes (user_id, song_id) VALUES ($1, $2)`,
+		vote.UserId, vote.SongId)
+
+	if err != nil {
+		http.Error(w, "Error submitting vote", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func getRandomSongsForVotingHandler(w http.ResponseWriter, r *http.Request) {
+	roomIdStr := r.URL.Query().Get("roomId")
+	userIdStr := r.URL.Query().Get("userId")
+
+	if roomIdStr == "" || userIdStr == "" {
+		http.Error(w, "Missing parameters", http.StatusBadRequest)
+		return
+	}
+
+	roomId, _ := strconv.Atoi(roomIdStr)
+	userId, _ := strconv.Atoi(userIdStr)
+
+	log.Printf("Received request for random songs for roomId: %d, userId: %d\n", roomId, userId)
+
+	rows, err := db.Query(context.Background(), `
+        SELECT song_id, track_name, artist_name, album_url
+        FROM song
+        WHERE room_id = $1
+        ORDER BY random()
+    `, roomId)
+
+	if err != nil {
+		log.Println("Error fetching songs from DB:", err)
+		http.Error(w, "Failed to fetch songs", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var songs []Track
+	for rows.Next() {
+		var song Track
+		err := rows.Scan(&song.SongID, &song.TrackName, &song.ArtistName, &song.AlbumURL)
+		if err != nil {
+			log.Println("Error scanning song row:", err)
+			continue
+		}
+		songs = append(songs, song)
+	}
+
+	log.Printf("Fetched %d songs for roomId %d\n", len(songs), roomId)
+
+	if len(songs) == 0 {
+		log.Println("No songs found for voting")
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(songs)
+}
+
 func connectDB() {
 	var err error
 	db, err = pgxpool.Connect(context.Background(), "postgres://user:password@postgres:5432/kingofthebeat")
@@ -834,6 +905,8 @@ func main() {
 	http.HandleFunc("/bets/submit", submitBetsHandler)
 	http.HandleFunc("/bets/all-submitted", allBetsSubmittedHandler)
 	http.HandleFunc("/bets/mark-submitted", markBetsSubmittedHandler)
+	http.HandleFunc("/vote/submit", submitVoteHandler)
+	http.HandleFunc("/songs/for-voting", getRandomSongsForVotingHandler)
 
 	go func() {
 		for {
