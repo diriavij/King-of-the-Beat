@@ -133,7 +133,7 @@ final class ResultsViewController: UIViewController {
             showAlert("No songs or not authorized"); return
         }
         
-        let roomName = UserDefaults.standard.string(forKey: "RoomName") ?? "My Room"
+        let roomName = UserDefaults.standard.string(forKey: "RoomName") ?? "Demo"
         let group = DispatchGroup()
         var uris = [String]()
         
