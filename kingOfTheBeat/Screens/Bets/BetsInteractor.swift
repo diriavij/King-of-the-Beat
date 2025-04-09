@@ -16,4 +16,10 @@ final class BetsInteractor: BetsBusinessLogic {
     init(presenter: BetsPresentationLogic) {
         self.presenter = presenter
     }
+    
+    // MARK: - Methods
+    
+    func loadVotingScreen(_ request: BetsModels.RouteToVoting.Request) {
+        presenter.routeToVotingScreen(BetsModels.RouteToVoting.Response())
+    }
 }

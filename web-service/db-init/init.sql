@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS "participation" (
 );
 
 ALTER TABLE "participation" ADD COLUMN is_submitted BOOLEAN DEFAULT FALSE;
+ALTER TABLE "participation" ADD COLUMN bets_submitted BOOLEAN DEFAULT FALSE;
 
 -- Создание таблицы песен
 CREATE TABLE IF NOT EXISTS "song" (
@@ -36,4 +37,16 @@ CREATE TABLE IF NOT EXISTS "song" (
   album_url VARCHAR,
   FOREIGN KEY (room_id) REFERENCES "room"(room_id) ON DELETE CASCADE,
   FOREIGN KEY (user_id) REFERENCES "user"(user_id) ON DELETE CASCADE
+);
+
+-- Создание таблицы ставок
+CREATE TABLE IF NOT EXISTS "bets" (
+    bet_id SERIAL PRIMARY KEY,
+    room_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    song_id INTEGER NOT NULL,
+    bet_amount INTEGER,
+    FOREIGN KEY (room_id) REFERENCES "room"(room_id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES "user"(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (song_id) REFERENCES "song"(song_id) ON DELETE CASCADE
 );
